@@ -1,88 +1,74 @@
 # Running AWS Glue ETL locally
 
-### Pre-requisites
-* docker/docker-compose
+### 1. Pre-requisites
 
+- docker
 
-### Config files
+### 2. Config files
 
-* src/config/hadoop/core-site.xml - Updated to point to local s3 emulator
-* src/config/spark/spark-defaults.conf - Glue jars were added to classpath
-* src/config/spark/pom.xml - This is not really required. It was added just in case you want to read/write Avro format via Spark not via Glue libs
+- src/config/spark/spark-defaults.conf - Glue jars were added to classpath
+- src/config/spark/pom.xml - This is not really required. It was added just in case you want to read/write Avro format via Spark not via Glue libs
+- src/config/aws/config - AWS Region and Response Format Settings
+- src/config/aws/credentials - AWS Connection Credentials
 
-
-### Build
-```
-docker compose -f docker-compose.yml build --progress plain
+### 3. Code Clone
 
 ```
-
-### Launch container
-```
-docker compose -f docker-compose.yml run \
---service-ports --rm \
---volume ./src/data:/root/data \
-glue /bin/bash
-
+git clone https://github.com/FoFxjc/glue-docker-compose.git
 ```
 
-### Create test bucket
+### 4. Change AWS Info
+
+1. src/config/aws/config
+
 ```
-aws s3 mb "s3://sample-bucket" --region ap-southeast-2 --endpoint-url=http://s3:9000
+[default]
+region = ap-northeast-1
+output = json
 ```
 
-### Upload some data
+2. src/config/aws/credentials
+
 ```
-aws s3 cp ./data/addresses.csv s3://sample-bucket/sample/ --endpoint-url=http://s3:9000
+[default]
+aws_access_key_id = <your-access-key-id>
+aws_secret_access_key = <your-secret-access-key>
 ```
 
+### 5. Check the Line Separator of **src/config/jupyter/jupyter_start.sh**
 
-### Test commands
+**Make sure the Line Separator is LF not CRLF**
+
+![image](https://github.com/FoFxjc/glue-docker-compose/blob/internal-network-version/images/jupyter_start_line_separator_setting.png)
+
+### 6. Build
+
 ```
-pyspark
+docker build -t glue_local -f glue.dockerfile .
+```
 
-import sys
-from pyspark.context import SparkContext
-from awsglue.context import GlueContext
-from awsglue.job import Job
-from awsglue.utils import getResolvedOptions
-from awsglue.dynamicframe import DynamicFrame
-import pyspark.sql.functions as F
-import pytz
+### 7. Create Local Jupyter Folder --optional
 
-# read from local bucket
-df = spark.read.csv("s3://sample-bucket/sample/", header=True, sep=",", inferSchema=True)
+```
+mkdir jupyter_working_dir
+```
 
-df_write = df.select("firstName", "email", "phoneNumber")
+### 8. Launch container
 
-df_write.show()
+**${PWD}/jupyter_working_dir** - host machine jupyter notebook working dir under current folder
 
-# try out some glue libs
-glue_context= GlueContext(spark.sparkContext)
-spark_session = glue_context.spark_session
-logger = glue_context.get_logger()
-job = Job(glue_context)
-job.init("test_avro")
+```
+docker run -d -p 8888:8888 -p 4040:4040 -v ${PWD}/jupyter_working_dir:/root/jupyter_working_dir -v ${PWD}/aws:/root/.aws --name glue_jupyter glue_local
+```
 
-member_dyn = DynamicFrame.fromDF(df_write, glue_context, "member_dyn")
+### 9. Open Jupyter Notebook in host Brower
 
-glue_context.write_dynamic_frame_from_options(
-    frame=member_dyn,
-    connection_type = "s3", 
-    connection_options = {
-        "path": "s3://sample-bucket/avro"
-     }, 
-    format = "avro", 
-    format_options={
-        "version": "1.8"
-    } 
-)
+```
+http://localhost:8888/
+```
 
-job.commit()
+### 10. Stop and Remove the Container --optional
 
-# read avro via spark
-df_avro = spark_session.read.format("avro").load("s3://sample-bucket/avro")
-
-df_avro.show()
-
+```
+docker stop glue_jupyter && docker rm glue_jupyter
 ```

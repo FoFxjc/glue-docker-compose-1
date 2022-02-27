@@ -6,7 +6,7 @@ ARG SPARK_VERSION=2.4.3
 ARG GLUE_VERSION=2.0
 ARG HADOOP_VERSION=2.8
 ARG MINICONDA_VERSION=4.7.12
-ARG AWS_DEFAULT_REGION=ap-southeast-2
+ARG AWS_DEFAULT_REGION=ap-northeast-1
 
 ENV LANG C.UTF-8
 ENV LC_ALL C.UTF-8
@@ -21,18 +21,20 @@ ENV PATH $SPARK_HOME/bin:$CONDA_HOME/bin:$PATH:$ADDITIONAL_PATH
 ENV AWS_DEFAULT_REGION $AWS_DEFAULT_REGION
 
 RUN apt-get update --fix-missing && apt-get install -y \
-    build-essential \
-    curl \
-    git \
-    make \
-    libssl-dev \
-    libffi-dev \
-    zlib1g-dev \
-    libbz2-dev \
-    libreadline-dev \
-    libsqlite3-dev \
-    zip \
-    unzip
+  build-essential \
+  curl \
+  git \
+  make \
+  libssl-dev \
+  libffi-dev \
+  zlib1g-dev \
+  libbz2-dev \
+  libreadline-dev \
+  libsqlite3-dev \
+  zip \
+  unzip \
+  gcc \
+  libkrb5-dev
 
 # Install aws-cli v2
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
@@ -41,47 +43,61 @@ RUN bash /tmp/aws/install
 
 # Install PYTHON
 RUN curl -sSL https://repo.continuum.io/miniconda/Miniconda3-$MINICONDA_VERSION-Linux-x86_64.sh -o /tmp/miniconda.sh \
-    && bash /tmp/miniconda.sh -bfp $CONDA_HOME \
-    && rm -rf /tmp/miniconda.sh \
-    && conda install -y python=$PYTHON_VERSION \
-    && conda update conda \
-    && apt-get autoclean \
-    && rm -rf /var/lib/apt/lists/* /var/log/dpkg.log \
-    && conda clean --all --yes
+  && bash /tmp/miniconda.sh -bfp $CONDA_HOME \
+  && rm -rf /tmp/miniconda.sh \
+  && conda install -y python=$PYTHON_VERSION \
+  && conda update conda \
+  && apt-get autoclean \
+  && rm -rf /var/lib/apt/lists/* /var/log/dpkg.log \
+  && conda clean --all --yes
 
 # Install Glue python packages
 # https://docs.aws.amazon.com/glue/latest/dg/aws-glue-programming-python-libraries.html
 COPY src/install/requirements.txt .
 RUN pip install -r requirements.txt
 
+RUN jupyter nbextension enable --py --sys-prefix widgetsnbextension 
+
+COPY src/maven/setting.xml /root/.m2/setting.xml
+
 # Install Glue Spark distribution
 RUN mkdir -p $SPARK_HOME
 RUN curl "https://aws-glue-etl-artifacts.s3.amazonaws.com/glue-${GLUE_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" \
-    -o /tmp/glue-${GLUE_VERSION}-spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz
+  -o /tmp/glue-${GLUE_VERSION}-spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz
 RUN tar -xf /tmp/glue-${GLUE_VERSION}-spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz --strip-components=1 -C $SPARK_HOME
 RUN rm /tmp/glue-${GLUE_VERSION}-spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz
 
 RUN mkdir -p ${GLUE_HOME}
 RUN git clone https://github.com/awslabs/aws-glue-libs $GLUE_HOME && \
-    cd $GLUE_HOME && git checkout glue-${GLUE_VERSION}
+  cd $GLUE_HOME && git checkout glue-${GLUE_VERSION}
 
-RUN mvn -f $GLUE_HOME/pom.xml -DoutputDirectory=$GLUE_HOME/jars dependency:copy-dependencies
+RUN mvn --settings /root/.m2/setting.xml -f $GLUE_HOME/pom.xml -DoutputDirectory=$GLUE_HOME/jars dependency:copy-dependencies
 RUN rm $GLUE_HOME/jars/servlet-api-2.5.jar && \
-    rm $GLUE_HOME/jars/jsr305-1.3.9.jar && \
-    rm $GLUE_HOME/jars/jersey-*-1.9.jar
+  rm $GLUE_HOME/jars/jsr305-1.3.9.jar && \
+  rm $GLUE_HOME/jars/jersey-*-1.9.jar
 
 COPY src/config/spark/pom.xml $HOME/install/spark-pom.xml
-RUN mvn -f $HOME/install/spark-pom.xml \
-    -Dscala-version=${SCALA_VERSION} \
-    -Dspark-version=$SPARK_VERSION \
-    -DoutputDirectory=${SPARK_HOME}/jars \
-    dependency:copy-dependencies
+RUN mvn --settings /root/.m2/setting.xml -f $HOME/install/spark-pom.xml \
+  -Dscala-version=${SCALA_VERSION} \
+  -Dspark-version=$SPARK_VERSION \
+  -DoutputDirectory=${SPARK_HOME}/jars \
+  dependency:copy-dependencies
 
-COPY src/config/hadoop/core-site.xml $SPARK_HOME/conf/
+# COPY src/config/hadoop/core-site.xml $SPARK_HOME/conf/
 COPY src/config/spark/spark-env.sh $SPARK_HOME/conf/
 COPY src/config/spark/spark-defaults.conf $SPARK_HOME/conf/
 
-COPY src/config/config $HOME/.aws/config
+# create aws config folder
+RUN mkdir /root/.aws
+COPY src/config/aws/config /root/.aws
+RUN chmod 600  /root/.aws/config
+COPY src/config/aws/credentials /root/.aws
+RUN chmod 600  /root/.aws/credentials
+
+# create jupyter notebook env
+RUN mkdir $HOME/jupyter_working_dir/
+COPY src/jupyter/jupyter_start.sh $HOME/jupyter_start.sh
+RUN chmod +x $HOME/jupyter_start.sh
 
 # Add py4j to python path
 ENV PYTHONPATH $GLUE_HOME:$SPARK_HOME/python/:$SPARK_HOME/python/lib/py4j-0.10.7-src.zip
@@ -90,5 +106,6 @@ RUN rm $GLUE_HOME/jars/netty-*
 
 WORKDIR $HOME
 
-ENTRYPOINT []
-CMD ["/bin/sh"]
+ENTRYPOINT ["/root/jupyter_start.sh"]
+EXPOSE 8888
+EXPOSE 4040
