@@ -34,26 +34,19 @@ output = json
 aws_access_key_id = <your-access-key-id>
 aws_secret_access_key = <your-secret-access-key>
 ```
-
-### 5. Check the Line Separator of **src/config/jupyter/jupyter_start.sh**
-
-**Make sure the Line Separator is LF not CRLF**
-
-![image](https://github.com/FoFxjc/glue-docker-compose/blob/internal-network-version/images/jupyter_start_line_separator_setting.png)
-
-### 6. Build
+### 5. Build
 
 ```
 docker build -t glue_local -f glue.dockerfile .
 ```
 
-### 7. Create Local Jupyter Folder --optional
+### 6. Create Local Jupyter Folder --optional
 
 ```
 mkdir jupyter_working_dir
 ```
 
-### 8. Launch container
+### 7. Launch container
 
 **${PWD}/jupyter_working_dir** - host machine jupyter notebook working dir under current folder
 
@@ -61,13 +54,13 @@ mkdir jupyter_working_dir
 docker run -d -p 8888:8888 -p 4040:4040 -v ${PWD}/jupyter_working_dir:/root/jupyter_working_dir -v ${PWD}/aws:/root/.aws --name glue_jupyter glue_local
 ```
 
-### 9. Open Jupyter Notebook in host Brower
+### 8. Open Jupyter Notebook in host Brower
 
 ```
 http://localhost:8888/
 ```
 
-### 10. Stop and Remove the Container --optional
+### 9. Stop and Remove the Container --optional
 
 ```
 docker stop glue_jupyter && docker rm glue_jupyter
